@@ -1,0 +1,24 @@
+[project]
+name = "voice-agent"
+version = "0.1.0"
+description = "Full-duplex voice agent: barge-in, semantic turn detection, backchannels, tool calls over MCP"
+requires-python = ">=3.11"
+dependencies = [
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+    "websockets>=13",
+    "groq>=0.11",
+    "mcp>=2,<3",
+    "python-dotenv>=1.0",
+    "playwright>=1.48",
+    "pypdf>=5",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "function"

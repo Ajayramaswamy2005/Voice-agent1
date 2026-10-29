@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duplex Voice Agent</title>
+<meta name="description" content="A voice agent you can interrupt. It listens while it talks, waits when you're mid-thought, speaks English and Hindi, and can do work for you in a browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0d1b3a; --ink-2: #33456b; --mute: #5d6d94;
+    --cobalt: #2457f5; --cobalt-deep: #1638b8; --cyan: #0ea5c6; --violet: #7a5af5; --coral: #e5484d; --mint: #12a37f;
+    --g1: linear-gradient(140deg, rgba(255, 255, 255, .62), rgba(255, 255, 255, .24) 55%, rgba(255, 255, 255, .38));
+    --g2: linear-gradient(160deg, rgba(255, 255, 255, .82), rgba(255, 255, 255, .55));
+    --edge: rgba(255, 255, 255, .8); --line: rgba(36, 87, 245, .12);
+    --shadow: 0 30px 70px -30px rgba(22, 56, 184, .5), 0 2px 6px -2px rgba(22, 56, 184, .12);
+    --r-xl: 34px; --r-lg: 26px; --r-md: 18px;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --wrap: 1160px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  /* The gradient lives on <html>: a <body> background would paint over the z-index:-1 canvas. */
+  html { background: linear-gradient(170deg, #eef4ff 0%, #d4e2ff 30%, #b8ceff 65%, #dbe6ff 100%) fixed #dbe6ff; }
+  html.no-js-scroll { scroll-behavior: smooth; }
+  body { margin: 0; color: var(--ink); overflow-x: hidden;
+         font: 16px/1.6 "Onest", "Noto Sans Devanagari", system-ui, sans-serif; font-variant-numeric: tabular-nums;
+         background: transparent; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--cobalt); outline-offset: 3px; border-radius: 6px; }
+  .wrap { width: min(var(--wrap), calc(100% - 32px)); margin: 0 auto; }
+
+  /* -- background: a WebGL liquid-glass field (CSS gradient underneath as the fallback) ------------- */
+  #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; display: block; opacity: 0; transition: opacity 1.2s ease; }
+  #gl.on { opacity: 1; }
+  .grain { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .06; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  /* -- glass ----------------------------------------------------------------------------------------- */
+  .glass { position: relative; isolation: isolate; background: var(--g1); border-radius: var(--r-lg);
+           backdrop-filter: blur(30px) saturate(190%); -webkit-backdrop-filter: blur(30px) saturate(190%);
+           box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .9); }
+  .glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; z-index: 2;
+    background: linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(255, 255, 255, .25) 35%, rgba(255, 255, 255, .08) 60%, rgba(255, 255, 255, .7));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+  /* a light that follows the cursor across the glass (set by JS through --mx/--my) */
+  .glass::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+    background: radial-gradient(420px circle at var(--mx, 0%) var(--my, 0%), rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 60%); }
+  .pane { background: var(--g2); border: 1px solid var(--edge); border-radius: var(--r-md);
+          box-shadow: 0 10px 30px -18px rgba(22, 56, 184, .5), inset 0 1px 0 #fff; }
+  .tilt { transform-style: preserve-3d; will-change: transform; }
+
+  /* -- buttons --------------------------------------------------------------------------------------- */
+  .btn { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 9px; border-radius: 999px;
+         padding: 14px 26px; text-decoration: none; border: 0; cursor: pointer; font: inherit; font-weight: 600;
+         transition: box-shadow .25s, filter .25s, background .25s; will-change: transform; }
+  .btn > * { pointer-events: none; }
+  .btn.primary { color: #fff; background: linear-gradient(180deg, #4f7bff 0%, var(--cobalt) 55%, var(--cobalt-deep) 100%);
+                 box-shadow: 0 14px 32px -12px rgba(36, 87, 245, .95), inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -2px 6px rgba(10, 30, 120, .35); }
+  .btn.primary::after { content: ""; position: absolute; top: 0; bottom: 0; width: 40%; left: -60%;
+                        background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .5), transparent); transform: skewX(-20deg); }
+  .btn.primary:hover::after { animation: shine .9s var(--ease); }
+  .btn.ghost { color: var(--cobalt-deep); background: rgba(255, 255, 255, .6); border: 1px solid var(--edge);
+               box-shadow: 0 8px 20px -14px rgba(22, 56, 184, .6), inset 0 1px 0 #fff; }
+  .btn:hover { filter: brightness(1.06); }
+  .btn.small { padding: 10px 18px; font-size: 14.5px; }
+  @keyframes shine { to { left: 130%; } }
+
+  /* -- nav ------------------------------------------------------------------------------------------- */
+  .progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 20; transform-origin: left; transform: scaleX(0);
+              background: linear-gradient(90deg, var(--cobalt), var(--cyan)); }
+  .navwrap { position: fixed; top: 14px; left: 0; right: 0; z-index: 10; pointer-events: none; transition: transform .5s var(--ease); }
+  .navwrap.away { transform: translateY(-120%); }
+  .nav { pointer-events: auto; padding: 9px 9px 9px 20px; border-radius: 999px; display: flex; align-items: center; gap: 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; letter-spacing: -.02em; text-decoration: none; margin-right: auto; }
+  .brand svg path { animation: eq 1.6s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+  .brand svg path:nth-child(odd) { animation-delay: -.5s; }
+  @keyframes eq { 50% { transform: scaleY(.72); } }
+  .nav-links { display: flex; gap: 4px; position: relative; }
+  .nav-links a { position: relative; z-index: 1; text-decoration: none; color: var(--ink-2); font-weight: 500; font-size: 15px; padding: 7px 12px; border-radius: 999px; transition: color .25s; }
+  .nav-links a.on { color: var(--cobalt-deep); }
+  .nav-pill { position: absolute; top: 0; height: 100%; border-radius: 999px; background: rgba(255, 255, 255, .75);
+              box-shadow: 0 4px 14px -6px rgba(22, 56, 184, .45); opacity: 0; transition: left .45s var(--ease), width .45s var(--ease), opacity .3s; }
+  @media (max-width: 880px) { .nav-links { display: none; } }
+
+  /* -- hero ------------------------------------------------------------------------------------------ */
+  .hero { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; padding: 150px 0 110px; min-height: 100vh; perspective: 1400px; }
+  @media (max-width: 960px) { .hero { grid-template-columns: 1fr; padding: 120px 0 72px; min-height: 0; gap: 44px; } }
+  h1 { font-size: clamp(46px, 6.6vw, 88px); line-height: .98; letter-spacing: -.045em; font-weight: 800; margin: 0 0 26px; perspective: 600px; }
+  h1 .w { display: inline-block; white-space: nowrap; }
+  h1 .c { display: inline-block; transform-origin: 50% 100%; }
+  h1 .cutword { position: relative; display: inline-block; }
+  h1 .slash { position: absolute; left: -2%; right: -2%; top: 54%; height: .09em; border-radius: 99px; background: var(--cobalt);
+              transform-origin: left; transform: scaleX(0); box-shadow: 0 0 18px rgba(36, 87, 245, .7); }
+  h1 .dash { display: inline-block; color: var(--cobalt); margin-left: .04em; }
+  .lede { font-size: clamp(17px, 1.6vw, 20px); color: var(--ink-2); max-width: 34em; margin: 0 0 34px; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+  .hero-note { margin: 22px 0 0; font-size: 14px; color: var(--ink-2); }
+
+  .demo { padding: 26px; border-radius: var(--r-xl); }
+  .demo .glare { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 3; mix-blend-mode: soft-light;
+                 background: radial-gradient(600px circle at var(--gx, 30%) var(--gy, 20%), rgba(255, 255, 255, .9), transparent 45%); }
+  .demo-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; transform: translateZ(40px); }
+  .demo-head b { display: block; font-size: 15px; } .demo-head small { color: var(--mute); font-size: 13px; }
+  .live { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--coral);
+          padding: 4px 11px; border-radius: 99px; background: rgba(255, 255, 255, .6); border: 1px solid var(--edge); }
+  .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+  .orb { --tint: 36, 87, 245; --lvl: 0; flex: none; width: 64px; height: 64px; border-radius: 50%; position: relative;
+         transform: scale(calc(1 + var(--lvl) * .16)); transition: transform 90ms linear;
+         background:
+           radial-gradient(circle at 30% 24%, rgba(255, 255, 255, .98) 0 8%, rgba(255, 255, 255, 0) 24%),
+           radial-gradient(circle at 50% 62%, rgba(var(--tint), .72) 0%, rgba(var(--tint), .26) 50%, rgba(255, 255, 255, .1) 74%),
+           rgba(255, 255, 255, .2);
+         border: 1px solid rgba(255, 255, 255, .9);
+         box-shadow: inset 0 -10px 20px -6px rgba(var(--tint), .75), inset 0 6px 14px rgba(255, 255, 255, .75), 0 16px 34px -12px rgba(var(--tint), .95); }
+  .orb::before { content: ""; position: absolute; inset: 6%; border-radius: 50%; mix-blend-mode: soft-light;
+                 background: conic-gradient(from 0deg, transparent 0 12%, rgba(255, 255, 255, .9) 20%, transparent 32%, rgba(var(--tint), .6) 55%, transparent 68%);
+                 animation: spin 10s linear infinite; }
+  .orb.listen { --tint: 14, 165, 198; }
+  .orb::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid rgba(var(--tint), .5); opacity: 0; }
+  .orb.talking::after { animation: ripple 1.6s ease-out infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes ripple { 0% { opacity: .8; transform: scale(1); } 100% { opacity: 0; transform: scale(1.45); } }
+  .chat { display: flex; flex-direction: column; gap: 10px; min-height: 310px; transform: translateZ(20px); }
+  .bubble { max-width: 86%; padding: 11px 15px; border-radius: 18px 18px 18px 6px; background: var(--g2); border: 1px solid var(--edge);
+            box-shadow: 0 8px 22px -14px rgba(22, 56, 184, .55), inset 0 1px 0 #fff; }
+  .bubble.you { align-self: flex-end; border-radius: 18px 18px 6px 18px; color: #fff; border-color: transparent;
+                background: linear-gradient(180deg, #4f7bff, var(--cobalt) 70%); box-shadow: 0 10px 24px -12px rgba(36, 87, 245, .85); }
+  .bubble.cut { border-style: dashed; color: var(--ink-2); }
+  .note { align-self: center; font-size: 13px; padding: 2px 12px; border-radius: 99px; background: rgba(255, 255, 255, .55);
+          border: 1px solid var(--edge); color: var(--ink-2); }
+  .note.barge { color: var(--coral); } .note.tool { color: var(--cobalt-deep); }
+  .caret::after { content: ""; display: inline-block; width: 2px; height: 1em; background: currentColor; margin-left: 2px; vertical-align: -2px; animation: blink .8s steps(2) infinite; }
+  .scrollcue { position: absolute; left: 50%; bottom: 26px; width: 26px; height: 42px; margin-left: -13px; border-radius: 99px; border: 2px solid rgba(13, 27, 58, .25); }
+  .scrollcue::after { content: ""; position: absolute; left: 50%; top: 8px; width: 4px; height: 8px; margin-left: -2px; border-radius: 99px; background: var(--cobalt); animation: cue 1.8s ease-in-out infinite; }
+  @keyframes cue { 0% { transform: translateY(0); opacity: 1; } 80% { transform: translateY(14px); opacity: 0; } 100% { opacity: 0; } }
+  @media (max-width: 960px) { .scrollcue { display: none; } }
+
+  /* -- sections -------------------------------------------------------------------------------------- */
+  section.block { position: relative; padding: 120px 0; }
+  @media (max-width: 720px) { section.block { padding: 76px 0; } }
+  h2 { font-size: clamp(34px, 4.4vw, 56px); line-height: 1.04; letter-spacing: -.035em; font-weight: 800; margin: 0 0 18px; max-width: 16em; }
+  h2 .wm { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: .08em; margin-bottom: -.08em; }
+  h2 .wi { display: inline-block; }
+  .sub { font-size: 18px; color: var(--ink-2); max-width: 38em; margin: 0 0 48px; }
+
+  /* pinned pipeline */
+  .pipe-stage { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+  .pipe { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; padding: 30px; border-radius: var(--r-xl); }
+  .wire { position: absolute; left: 64px; right: 64px; top: 66px; height: 4px; border-radius: 99px; background: rgba(36, 87, 245, .14); }
+  .wire .fill { position: absolute; inset: 0; border-radius: inherit; transform-origin: left; transform: scaleX(1);
+                background: linear-gradient(90deg, var(--cobalt), var(--cyan)); box-shadow: 0 0 16px rgba(36, 87, 245, .6); }
+  .packet { position: absolute; top: 50%; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; opacity: 0;
+            background: radial-gradient(circle, #fff 0 30%, var(--cyan) 60%, rgba(14, 165, 198, 0) 72%);
+            box-shadow: 0 0 22px 6px rgba(14, 165, 198, .65), 0 0 50px 14px rgba(36, 87, 245, .35); }
+  .node { position: relative; z-index: 1; padding: 18px 16px; }
+  .node .dot { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 14px; color: #fff; font-weight: 700; font-size: 14px;
+               background: linear-gradient(180deg, #4f7bff, var(--cobalt-deep)); box-shadow: 0 8px 18px -8px rgba(36, 87, 245, .9), inset 0 1px 0 rgba(255,255,255,.4); }
+  .node b { display: block; font-size: 16px; margin-bottom: 4px; }
+  .node p { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+  .node .ms { display: inline-block; margin-top: 12px; font-size: 13.5px; font-weight: 700; color: var(--cobalt-deep);
+              padding: 3px 11px; border-radius: 99px; background: rgba(36, 87, 245, .09); }
+  .node .ms:empty { display: none; }
+  .pipe-note { margin: 18px 0 0; font-size: 14px; color: var(--mute); }
+  @media (max-width: 900px) { .pipe { grid-template-columns: 1fr; } .wire { display: none; } .pipe-stage { min-height: 0; } }
+
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; perspective: 1200px; }
+  @media (max-width: 1000px) { .grid4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .grid4 { grid-template-columns: 1fr; } }
+  .feat { padding: 28px 24px; }
+  .feat .icon { width: 48px; height: 48px; border-radius: 15px; display: grid; place-items: center; margin-bottom: 18px; transform: translateZ(30px);
+                background: linear-gradient(160deg, #fff, rgba(255, 255, 255, .5)); border: 1px solid var(--edge);
+                box-shadow: 0 10px 20px -12px rgba(22, 56, 184, .6), inset 0 1px 0 #fff; color: var(--cobalt); }
+  .feat h3 { margin: 0 0 8px; font-size: 19px; letter-spacing: -.01em; transform: translateZ(20px); }
+  .feat p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .feat .say { display: block; margin-top: 14px; font-size: 14px; color: var(--cobalt-deep); font-weight: 500; }
+
+  /* lines: a dealt deck */
+  .lines-stage { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+  .lines { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; perspective: 1400px; }
+  @media (max-width: 960px) { .lines { grid-template-columns: 1fr; } .lines-stage { min-height: 0; } }
+  .line { padding: 28px; display: flex; flex-direction: column; gap: 14px; }
+  .line .who { display: flex; align-items: center; gap: 14px; }
+  .line .who .orb { width: 50px; height: 50px; }
+  .line h3 { margin: 0; font-size: 21px; letter-spacing: -.015em; }
+  .line .what { margin: 0; color: var(--mute); font-size: 14px; }
+  .line p { margin: 0; color: var(--ink-2); }
+  .line .try { margin-top: auto; padding-top: 6px; }
+  .quote { font-size: 15px; padding: 12px 14px; border-radius: 14px 14px 14px 4px; color: var(--ink); }
+
+  /* browser story */
+  .story { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: start; }
+  @media (max-width: 960px) { .story { grid-template-columns: 1fr; } .story .stick { position: relative; top: 0; } }
+  .stick { position: sticky; top: 110px; padding: 16px; border-radius: var(--r-xl); }
+  .bframe { border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--edge); background: rgba(255, 255, 255, .7);
+            box-shadow: 0 18px 40px -22px rgba(15, 30, 61, .6), inset 0 1px 0 #fff; }
+  .bbar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: rgba(255, 255, 255, .8); border-bottom: 1px solid var(--line); }
+  .bbar i { width: 10px; height: 10px; border-radius: 50%; } .bbar i:nth-child(1) { background: #f6a5a7; } .bbar i:nth-child(2) { background: #f5d48c; } .bbar i:nth-child(3) { background: #9fdcc5; }
+  .bbar span { flex: 1; font-size: 13px; color: var(--mute); background: rgba(36, 87, 245, .06); border-radius: 99px; padding: 4px 12px; }
+  .bpage { position: relative; padding: 22px 26px 150px; background: #f6f8fc; overflow: hidden; }
+  .bpage h4 { margin: 0 0 4px; font-size: 17px; } .bpage .loc { margin: 0 0 16px; font-size: 13px; color: var(--mute); }
+  .scan { position: absolute; left: 0; right: 0; top: 0; height: 90px; pointer-events: none; opacity: 0;
+          background: linear-gradient(180deg, rgba(36, 87, 245, 0), rgba(36, 87, 245, .14) 70%, rgba(14, 165, 198, .6) 100%); border-bottom: 2px solid var(--cyan); }
+  .field { position: relative; margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: #4b5568; margin-bottom: 4px; }
+  .field .in { height: 34px; border: 1px solid #cdd5e3; border-radius: 7px; background: #fff; padding: 6px 10px; font-size: 13.5px; color: var(--ink); overflow: hidden; white-space: nowrap; }
+  .mark { position: absolute; inset: 18px -3px -3px -3px; pointer-events: none; }
+  .mark svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .mark rect { fill: none; stroke: var(--cobalt); stroke-width: 2; }
+  .mark .tag { position: absolute; top: -10px; left: -2px; background: var(--cobalt); color: #fff; font: 600 11px/14px Onest, sans-serif; padding: 0 4px; border-radius: 4px; transform-origin: left bottom; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .submit { display: inline-block; position: relative; margin-top: 6px; padding: 9px 18px; border-radius: 7px; background: #1f5eff; color: #fff; font-weight: 600; font-size: 14px; }
+  .submit .mark { inset: -5px; }
+  .gate { position: absolute; left: 20px; right: 20px; bottom: 20px; padding: 14px 16px; border-radius: 16px; font-size: 14.5px; font-weight: 500;
+          background: linear-gradient(160deg, rgba(255, 249, 235, .97), rgba(255, 240, 210, .92)); border: 1px solid rgba(245, 190, 90, .8);
+          box-shadow: 0 16px 34px -16px rgba(180, 83, 9, .55); }
+  .gate .row { display: flex; gap: 8px; margin-top: 10px; }
+  .gate .row span { padding: 6px 14px; border-radius: 9px; font-size: 13px; font-weight: 600; background: #fff; color: var(--cobalt-deep); border: 1px solid #f0dcb4; }
+  .gate .row span:first-child { background: var(--cobalt); color: #fff; border-color: transparent; }
+  .plan-mini { position: absolute; top: 16px; right: 16px; width: 230px; padding: 12px 14px; font-size: 13px; }
+  .plan-mini b { display: block; margin-bottom: 6px; font-size: 13px; }
+  .plan-mini ol { margin: 0; padding-left: 18px; color: var(--ink-2); display: grid; gap: 3px; }
+  .ok { position: absolute; right: 8px; top: 25px; width: 18px; height: 18px; border-radius: 50%; background: var(--mint); color: #fff; font-size: 11px; display: grid; place-items: center; }
+  .steps { display: grid; gap: 24vh; padding: 8vh 0 26vh; }
+  @media (max-width: 960px) { .steps { gap: 28px; padding: 28px 0 0; } }
+  .step { padding: 28px; }
+  .step .n { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; font-weight: 700; font-size: 14px; color: #fff; margin-bottom: 14px;
+             background: linear-gradient(180deg, #4f7bff, var(--cobalt-deep)); }
+  .step h3 { margin: 0 0 8px; font-size: 22px; letter-spacing: -.015em; }
+  .step p { margin: 0; color: var(--ink-2); }
+
+  /* build your own */
+  .build { display: grid; grid-template-columns: .9fr 1.1fr; gap: 40px; align-items: center; }
+  @media (max-width: 960px) { .build { grid-template-columns: 1fr; } }
+  .build ul { margin: 0 0 28px; padding: 0; list-style: none; display: grid; gap: 12px; color: var(--ink-2); }
+  .build li { padding-left: 30px; position: relative; }
+  .build li::before { content: "✓"; position: absolute; left: 0; top: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; color: #fff; background: var(--mint); }
+  pre.code { margin: 0; padding: 26px 28px; border-radius: var(--r-lg); overflow-x: auto; font: 14px/1.75 ui-monospace, "Cascadia Code", Consolas, monospace;
+             color: #dbe6ff; background: linear-gradient(160deg, rgba(16, 32, 78, .93), rgba(22, 46, 120, .87));
+             box-shadow: 0 30px 70px -30px rgba(15, 30, 61, .8), inset 0 1px 0 rgba(255, 255, 255, .15); }
+  pre.code .ln { display: block; min-height: 1.75em; }
+  pre.code .k { color: #8fb4ff; } pre.code .s { color: #9de3c5; } pre.code .c { color: #7f8fb8; }
+
+  /* final */
+  .final { position: relative; overflow: hidden; text-align: center; padding: 80px 32px; border-radius: var(--r-xl); }
+  .final .bigorb { position: absolute; left: 50%; top: 50%; width: 560px; height: 560px; margin: -280px 0 0 -280px; border-radius: 50%; z-index: -1; opacity: .55;
+                   background: radial-gradient(circle at 35% 30%, #fff 0 6%, rgba(255,255,255,0) 22%), radial-gradient(circle, rgba(36, 87, 245, .55), rgba(14, 165, 198, .25) 45%, transparent 70%); filter: blur(4px); }
+  .final h2 { margin: 0 auto 14px; } .final .sub { margin: 0 auto 30px; }
+  .final .ctas { justify-content: center; }
+  footer { padding: 40px 0 56px; color: var(--mute); font-size: 14px; display: flex; flex-wrap: wrap; gap: 12px 24px; }
+  footer a { color: var(--ink-2); text-decoration: none; } footer a:hover { color: var(--cobalt); }
+  footer span { margin-right: auto; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<canvas id="gl" aria-hidden="true"></canvas>
+<div class="grain" aria-hidden="true"></div>
+<div class="progress" id="progress" aria-hidden="true"></div>
+
+<div class="navwrap" id="navwrap">
+  <div class="wrap">
+    <nav class="nav glass" aria-label="Main">
+      <a class="brand" href="#top" data-scroll>
+        <svg width="28" height="28" viewBox="0 0 26 26" aria-hidden="true">
+          <circle cx="13" cy="13" r="12" fill="#2457f5" opacity=".15"/>
+          <path d="M7 11.5v3" stroke="#2457f5" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M10.2 9v8" stroke="#2457f5" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M13.4 6.5v13" stroke="#2457f5" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M16.6 9v8" stroke="#2457f5" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M19.8 11.5v3" stroke="#2457f5" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+        Duplex
+      </a>
+      <div class="nav-links" id="navLinks">
+        <span class="nav-pill" id="navPill"></span>
+        <a href="#how" data-scroll>How it works</a>
+        <a href="#lines" data-scroll>Lines</a>
+        <a href="#browser" data-scroll>Browser assistant</a>
+        <a href="#build" data-scroll>Build your own</a>
+      </div>
+      <a class="btn primary small magnetic" href="/app"><span>Open the app</span></a>
+    </nav>
+  </div>
+</div>
+
+<main id="top">
+  <div class="wrap hero" style="position: relative">
+    <div class="hero-text">
+      <h1 id="headline" aria-label="A voice agent you can interrupt">A voice agent you can <span class="cutword">interrupt<span class="slash"></span></span><span class="dash">—</span></h1>
+      <p class="lede hero-fade">It listens while it talks, waits when you're mid-thought, and answers in English or Hindi. Book a clinic visit, sort out an order, or hand it work to do in a browser.</p>
+      <div class="ctas hero-fade">
+        <a class="btn primary magnetic" href="/app">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="currentColor"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          <span>Start a call</span>
+        </a>
+        <a class="btn ghost magnetic" href="#how" data-scroll><span>See how it works</span></a>
+      </div>
+      <p class="hero-note hero-fade">Works in Chrome and Edge. Headphones help.</p>
+    </div>
+
+    <div class="demo glass tilt" id="demo" aria-label="Example call, playing on a loop">
+      <div class="glare" aria-hidden="true"></div>
+      <div class="demo-head">
+        <div class="orb" id="demoOrb"></div>
+        <div><b>Sunrise Clinic</b><small>Asha, front desk</small></div>
+        <span class="live">On a call</span>
+      </div>
+      <div class="chat" id="chat" aria-live="off"></div>
+    </div>
+    <span class="scrollcue" aria-hidden="true"></span>
+  </div>
+
+  <section class="block" id="how">
+    <div class="wrap">
+      <div class="pipe-stage" id="pipeStage">
+        <h2 class="split">Talking to it feels like a phone call, not a chatbot</h2>
+        <p class="sub fade-up">Every stage streams into the next, so it starts answering while it's still thinking. Here is one turn, from your last word to its first sound.</p>
+        <div class="pipe glass" id="pipe">
+          <div class="wire" aria-hidden="true"><div class="fill" id="wireFill"></div><div class="packet" id="packet"></div></div>
+          <div class="node"><div class="dot">1</div><b>You stop talking</b><p>It hears the pause in 100 ms and asks for the final words right away.</p><span class="ms" data-k="stt"></span></div>
+          <div class="node"><div class="dot">2</div><b>Are you done?</b><p>A fast check tells a finished sentence from a pause mid-thought.</p><span class="ms" data-k="turn_gate"></span></div>
+          <div class="node"><div class="dot">3</div><b>It thinks</b><p>The reply starts on your words before the transcript is even final.</p><span class="ms" data-k="llm_ttft"></span></div>
+          <div class="node"><div class="dot">4</div><b>It speaks</b><p>The first phrase goes to the voice as soon as it's written.</p><span class="ms" data-k="tts_ttfb"></span></div>
+          <div class="node"><div class="dot">5</div><b>You hear it</b><p>Audio plays the moment it arrives, and stops the moment you cut in.</p><span class="ms" data-k="e2e"></span></div>
+        </div>
+        <p class="pipe-note" id="pipeNote">Numbers appear here once this server has handled some calls.</p>
+      </div>
+
+      <div class="grid4" id="feats" style="margin-top: 72px">
+        <article class="feat glass tilt">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h3l3-7 4 14 3-7h3"/></svg></div>
+          <h3>Cut in any time</h3>
+          <p>Start talking and it stops mid-word. It remembers only what you actually heard, so it doesn't repeat itself.</p>
+          <span class="say">“Wait, Friday instead.”</span>
+        </article>
+        <article class="feat glass tilt">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <h3>Waits while you think</h3>
+          <p>Pause mid-sentence and it holds on. “I want to book for my… son” gets one answer, not two.</p>
+          <span class="say">“I want to book for my…”</span>
+        </article>
+        <article class="feat glass tilt">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a8 8 0 0 1-12 7l-5 1 1-4a8 8 0 1 1 16-4z"/></svg></div>
+          <h3>Says “mm-hm”</h3>
+          <p>During a long explanation it nods along, in your language, the way a person on the phone would.</p>
+          <span class="say" lang="hi">“हाँ… अच्छा…”</span>
+        </article>
+        <article class="feat glass tilt">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/></svg></div>
+          <h3>Never goes quiet</h3>
+          <p>While it checks a schedule or an order, it says so, then picks up with the answer.</p>
+          <span class="say">“Let me check that for you.”</span>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="lines">
+    <div class="wrap lines-stage" id="linesStage">
+      <h2 class="split">Three lines to call today</h2>
+      <p class="sub fade-up">Each line is one agent with its own job and tools. Pick one and talk, in English, Hindi or a mix.</p>
+      <div class="lines" id="deck">
+        <article class="line glass tilt">
+          <div class="who"><div class="orb listen"></div><div><h3>Sunrise Clinic</h3><p class="what">Asha books, moves and cancels visits</p></div></div>
+          <div class="quote pane">“I need a skin doctor tomorrow morning.”</div>
+          <p>Finds the right specialist and offers open slots. Confirms before it books anything.</p>
+          <div class="try"><a class="btn ghost small magnetic" href="/app?line=clinic"><span>Call the clinic</span></a></div>
+        </article>
+        <article class="line glass tilt">
+          <div class="who"><div class="orb" style="--tint: 122, 90, 245"></div><div><h3>NovaMart support</h3><p class="what">Meera sorts out orders, in Hindi or English</p></div></div>
+          <div class="quote pane" lang="hi">“मेरा ऑर्डर OD1005 अभी तक नहीं आया।”</div>
+          <p>Tracks orders, starts refunds and raises tickets. Switches language when you do.</p>
+          <div class="try"><a class="btn ghost small magnetic" href="/app?line=support"><span>Call support</span></a></div>
+        </article>
+        <article class="line glass tilt">
+          <div class="who"><div class="orb"></div><div><h3>Kiran</h3><p class="what">Does work for you in a browser</p></div></div>
+          <div class="quote pane">“Fill this form with my resume details.”</div>
+          <p>Fills forms, finds and compares information, and asks before anything that can't be undone.</p>
+          <div class="try"><a class="btn ghost small magnetic" href="/app?line=browser"><span>Talk to Kiran</span></a></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="browser">
+    <div class="wrap">
+      <h2 class="split">Tell it what you need done. It works the browser.</h2>
+      <p class="sub fade-up">Kiran reads the page the way you would: it looks at it, acts, checks the result, and stops to ask before anything that matters.</p>
+      <div class="story" id="story">
+        <div class="stick glass" id="stick" aria-hidden="true">
+          <div class="bframe">
+            <div class="bbar"><i></i><i></i><i></i><span>harborlabs.example/careers/apply</span></div>
+            <div class="bpage">
+              <div class="scan" id="scan"></div>
+              <h4>Backend Engineer (Python)</h4>
+              <p class="loc">Bengaluru · Hybrid · Full time</p>
+              <div class="two">
+                <div class="field"><label>First name</label><div class="in"><span class="v" data-text="Ananya"></span></div><span class="mark" data-n="1"></span><span class="ok">✓</span></div>
+                <div class="field"><label>Last name</label><div class="in"><span class="v" data-text="Rao"></span></div><span class="mark" data-n="2"></span><span class="ok">✓</span></div>
+              </div>
+              <div class="field"><label>Email</label><div class="in"><span class="v" data-text="ananya.rao@example.com"></span></div><span class="mark" data-n="3"></span><span class="ok">✓</span></div>
+              <div class="two">
+                <div class="field"><label>Current company</label><div class="in"><span class="v" data-text="Lumen Logistics"></span></div><span class="mark" data-n="4"></span><span class="ok">✓</span></div>
+                <div class="field"><label>Notice period</label><div class="in"><span class="v" data-text="30 days"></span></div><span class="mark" data-n="5"></span><span class="ok">✓</span></div>
+              </div>
+              <span class="submit">Submit application<span class="mark" data-n="6"></span></span>
+              <div class="plan-mini pane"><b>Plan</b><ol><li>Read the form</li><li>Fill it from your resume</li><li>Submit, after you say yes</li></ol></div>
+              <div class="gate">I'm about to click “Submit application”. Should I go ahead?<div class="row"><span>Approve</span><span>Decline</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="steps" id="steps">
+          <article class="step glass"><span class="n">1</span><h3>It plans first</h3><p>Bigger jobs start with a short plan you can approve or change, by voice or on screen. Steps tick off as it works.</p></article>
+          <article class="step glass"><span class="n">2</span><h3>It looks at the page</h3><p>Every button and field gets a number, so it can point at exactly what to use. Where there's nothing to number, it works from screen position.</p></article>
+          <article class="step glass"><span class="n">3</span><h3>It checks each step</h3><p>After typing or clicking it confirms the page really changed. If something didn't stick, it tries again, and tells you if it can't.</p></article>
+          <article class="step glass"><span class="n">4</span><h3>It asks before anything risky</h3><p>Submitting, sending, posting, paying or deleting waits for your yes. It never types passwords, and every action goes in a log you can read.</p></article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="build">
+    <div class="wrap build">
+      <div>
+        <h2 class="split">Add your own line in one file</h2>
+        <p class="sub fade-up" style="margin-bottom: 26px">Write who the agent is, what it says while it works, and which tools it may use. Any MCP server works, so it can reach your booking system, shop or CRM.</p>
+        <ul class="fade-up">
+          <li>Restart, and the new line appears in the app with its tools</li>
+          <li>Your API keys stay private unless you pass them on</li>
+          <li>Answer real phone numbers through Twilio</li>
+        </ul>
+        <a class="btn primary magnetic fade-up" href="/app"><span>Try the built-in lines</span></a>
+      </div>
+      <pre class="code" id="code" aria-label="Example line file"><span class="ln"><span class="c"># lines/pizza.toml</span></span><span class="ln"><span class="k">name</span> = <span class="s">"Pizza Palace: orders"</span></span><span class="ln"><span class="k">mcp_command</span> = [<span class="s">"npx"</span>, <span class="s">"-y"</span>, <span class="s">"@acme/pizza-mcp"</span>]</span><span class="ln"><span class="k">prompt</span> = <span class="s">"You are Rhea, taking delivery orders in Indiranagar..."</span></span><span class="ln"></span><span class="ln"><span class="k">[greeting]</span></span><span class="ln"><span class="k">en</span> = <span class="s">"Pizza Palace, this is Rhea. What can I get you?"</span></span><span class="ln"><span class="k">hi</span> = <span class="s">"पिज़्ज़ा पैलेस, मैं रिया बोल रही हूँ।"</span></span><span class="ln"></span><span class="ln"><span class="k">[fillers]</span></span><span class="ln"><span class="k">en</span> = [<span class="s">"Let me check the menu."</span>]</span></pre>
+    </div>
+  </section>
+
+  <section class="block" style="padding-top: 0">
+    <div class="wrap">
+      <div class="final glass" id="final">
+        <div class="bigorb" id="bigorb" aria-hidden="true"></div>
+        <h2 class="split">Try interrupting it</h2>
+        <p class="sub fade-up">Start a call, let it talk, then cut in. That's the whole point.</p>
+        <div class="ctas fade-up"><a class="btn primary magnetic" href="/app"><span>Start a call</span></a><a class="btn ghost magnetic" href="/latency"><span>See the latency numbers</span></a></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <span>Duplex, a full-duplex voice agent</span>
+  <a href="/app">App</a>
+  <a href="/latency">Latency dashboard</a>
+  <a href="/demo/job-application">Demo form</a>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fine = matchMedia("(pointer: fine)").matches;
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const hasGsap = !!(window.gsap && window.ScrollTrigger);
+
+  // Content the animations would otherwise reveal is filled in up front, so the page is complete without
+  // animation (reduced motion, or the CDN failed to load).
+  $$(".v").forEach((v) => (v.textContent = v.dataset.text));
+  $$(".mark").forEach((m) => {
+    m.innerHTML = `<svg aria-hidden="true"><rect x="1" y="1" rx="7" pathLength="100"/></svg><span class="tag">${m.dataset.n}</span>`;
+  });
+  const fitRects = () => $$(".mark").forEach((m) => {
+    const r = $("rect", m), b = m.getBoundingClientRect();
+    r.setAttribute("width", Math.max(0, b.width - 2)); r.setAttribute("height", Math.max(0, b.height - 2));
+  });
+  fitRects();
+
+  // =========================== WebGL liquid-glass background ========================================
+  const scrollState = { y: 0, v: 0 };
+  (function shader() {
+    const canvas = $("#gl");
+    const gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" });
+    if (!gl) return;
+    const vs = "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}";
+    const fs = `precision mediump float;
+      uniform vec2 r; uniform float t; uniform vec2 m; uniform float s; uniform float v;
+      float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+      float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+        return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
+      float fbm(vec2 p){float a=.5,o=0.;for(int i=0;i<5;i++){o+=a*n(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}return o;}
+      void main(){
+        vec2 uv=gl_FragCoord.xy/r; vec2 asp=vec2(r.x/r.y,1.);
+        vec2 p=uv*asp*1.5; p.y-=s*.00035;
+        float tt=t*.045+v*.002;
+        vec2 q=vec2(fbm(p+tt),fbm(p+vec2(5.2,1.3)-tt*.8));
+        vec2 d=(m-uv)*asp; float md=exp(-dot(d,d)*7.);
+        vec2 w=vec2(fbm(p+3.*q+vec2(1.7,9.2)+tt*1.3+md*.35),fbm(p+3.*q+vec2(8.3,2.8)-tt));
+        float f=fbm(p+2.6*w);
+        vec3 base=vec3(.88,.92,1.);
+        vec3 col=mix(base,vec3(.36,.55,1.),smoothstep(.3,.78,f)*.95);
+        col=mix(col,vec3(.42,.84,.97),smoothstep(.4,.9,w.x)*.7);
+        col=mix(col,vec3(.6,.52,1.),smoothstep(.5,.95,w.y)*.55);
+        col=mix(col,vec3(1.),pow(smoothstep(.62,.9,f),3.)*.6);
+        col+=md*.10;
+        gl_FragColor=vec4(col,1.);
+      }`;
+    const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return o; };
+    const pr = gl.createProgram();
+    gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return;
+    gl.useProgram(pr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, "p");
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const U = Object.fromEntries(["r", "t", "m", "s", "v"].map((k) => [k, gl.getUniformLocation(pr, k)]));
+    const scale = 0.5; // half resolution: it's a soft field, and it keeps the GPU cool
+    const resize = () => { canvas.width = innerWidth * scale; canvas.height = innerHeight * scale; gl.viewport(0, 0, canvas.width, canvas.height); };
+    resize(); addEventListener("resize", resize);
+    const mouse = { x: .7, y: .6, tx: .7, ty: .6 };
+    addEventListener("pointermove", (e) => { mouse.tx = e.clientX / innerWidth; mouse.ty = 1 - e.clientY / innerHeight; }, { passive: true });
+    let vel = 0, start = performance.now(), running = true;
+    document.addEventListener("visibilitychange", () => { running = !document.hidden; if (running) requestAnimationFrame(frame); });
+    function frame(now) {
+      if (!running) return;
+      mouse.x += (mouse.tx - mouse.x) * .05; mouse.y += (mouse.ty - mouse.y) * .05;
+      vel += (Math.abs(scrollState.v) - vel) * .06;
+      const t = reduce ? 0 : (now - start) / 1000;
+      gl.uniform2f(U.r, canvas.width, canvas.height); gl.uniform1f(U.t, t);
+      gl.uniform2f(U.m, mouse.x, mouse.y); gl.uniform1f(U.s, scrollState.y); gl.uniform1f(U.v, vel * 40);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (!reduce) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    canvas.classList.add("on");
+  })();
+
+  // =========================== the hero call: a scripted barge-in on a loop =========================
+  (function demoCall() {
+    const chat = $("#chat"), orb = $("#demoOrb");
+    const SCRIPT = [
+      ["agent", "Hi, this is Asha from Sunrise Clinic. How can I help you today?"],
+      ["you", "I need a skin doctor tomorrow morning."],
+      ["tool", "Checking the schedule"],
+      ["agent-cut", "Dr. Kavya Rao has ten, ten thirty, and eleven fif"],
+      ["barge", "You cut in"],
+      ["you", "Wait, Friday instead."],
+      ["agent", "Sure. On Friday she has nine forty-five or eleven. Which works?"],
+    ];
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let level = 0;
+    (function wobble() { orb.style.setProperty("--lvl", level * (0.5 + Math.random() * 0.5)); setTimeout(wobble, 90); })();
+    const pop = (el) => hasGsap && !reduce && gsap.from(el, { y: 14, scale: .94, opacity: 0, duration: .5, ease: "back.out(1.8)",
+      transformOrigin: el.classList.contains("you") ? "100% 100%" : "0% 100%" });
+    async function type(el, text, speed) {
+      if (reduce) { el.textContent = text; return; }
+      el.classList.add("caret");
+      for (let i = 1; i <= text.length; i++) { el.textContent = text.slice(0, i); await sleep(speed); }
+      el.classList.remove("caret");
+    }
+    (async function play() {
+      while (true) {
+        chat.replaceChildren();
+        for (const [kind, text] of SCRIPT) {
+          const el = document.createElement("div");
+          if (kind === "tool" || kind === "barge") {
+            el.className = `note ${kind}`; el.textContent = text; chat.append(el); pop(el);
+            if (kind === "barge" && hasGsap && !reduce) gsap.fromTo(chat, { x: -6 }, { x: 0, duration: .5, ease: "elastic.out(1, .3)" });
+            await sleep(kind === "tool" ? 900 : 500);
+            continue;
+          }
+          el.className = kind === "you" ? "bubble you" : "bubble";
+          chat.append(el); pop(el);
+          const agent = kind !== "you";
+          orb.classList.toggle("listen", !agent); orb.classList.add("talking");
+          level = agent ? 0.7 : 0.4;
+          await type(el, text, agent ? 28 : 40);
+          if (kind === "agent-cut") { el.classList.add("cut"); el.textContent += " —"; }
+          level = 0; orb.classList.remove("talking");
+          await sleep(kind === "agent-cut" ? 150 : 750);
+        }
+        await sleep(3400);
+        if (hasGsap && !reduce) await new Promise((r) => gsap.to(chat.children, { opacity: 0, y: -10, stagger: .04, duration: .35, onComplete: r }));
+      }
+    })();
+  })();
+
+  // live medians for the pipeline
+  const latency = fetch("/api/latency").then((r) => r.json()).then(({ summary }) => (summary && summary.n >= 5 ? summary : null)).catch(() => null);
+  const msLabel = (k, v) => (k === "e2e" ? `${Math.round(v)} ms in total` : k === "turn_gate" && v < 5 ? "runs alongside" : `${Math.round(v)} ms`);
+  latency.then((s) => {
+    if (!s) return;
+    $("#pipeNote").textContent = `Median times from the last ${s.n} turns on this server. They change with the model, region and network.`;
+    if (!hasGsap || reduce) $$(".ms").forEach((el) => (el.textContent = msLabel(el.dataset.k, s[el.dataset.k]?.p50 ?? 0)));
+  });
+
+  if (!hasGsap || reduce) {
+    document.documentElement.classList.add("no-js-scroll");
+    return; // everything is already visible and filled in
+  }
+
+  // =========================== smooth scroll (Lenis) driving ScrollTrigger ==========================
+  gsap.registerPlugin(ScrollTrigger);
+  let lenis = null;
+  if (window.Lenis) {
+    lenis = new Lenis({ lerp: 0.085, wheelMultiplier: 0.95, smoothWheel: true });
+    lenis.on("scroll", (e) => { scrollState.y = e.scroll; scrollState.v = e.velocity; ScrollTrigger.update(); });
+    gsap.ticker.add((t) => lenis.raf(t * 1000));
+    gsap.ticker.lagSmoothing(0);
+  } else {
+    addEventListener("scroll", () => (scrollState.y = scrollY), { passive: true });
+  }
+  $$("[data-scroll]").forEach((a) => a.addEventListener("click", (e) => {
+    const id = a.getAttribute("href");
+    if (!id.startsWith("#")) return;
+    e.preventDefault();
+    const target = id === "#top" ? 0 : $(id);
+    if (lenis) lenis.scrollTo(target, { offset: -20, duration: 1.4, easing: (t) => 1 - Math.pow(1 - t, 4) });
+    else if (target === 0) scrollTo(0, 0); else target.scrollIntoView();
+  }));
+
+  // progress bar, hide-on-scroll-down nav, a pill that slides under the active link
+  ScrollTrigger.create({ start: 0, end: "max", onUpdate: (self) => {
+    $("#progress").style.transform = `scaleX(${self.progress})`;
+    $("#navwrap").classList.toggle("away", self.direction === 1 && self.scroll() > 400);
+  } });
+  // =========================== headline: 3D character cascade, then the cut =========================
+  const h1 = $("#headline");
+  const cutword = $(".cutword", h1);
+  const charsOf = (text) => {
+    const frag = document.createDocumentFragment();
+    text.split(/(\s+)/).forEach((part) => {
+      if (!part) return;
+      if (/^\s+$/.test(part)) { frag.append(" "); return; }
+      const w = document.createElement("span"); w.className = "w"; w.setAttribute("aria-hidden", "true");
+      for (const ch of part) { const c = document.createElement("span"); c.className = "c"; c.textContent = ch; w.append(c); }
+      frag.append(w);
+    });
+    return frag;
+  };
+  const lead = h1.firstChild;
+  lead.replaceWith(charsOf(lead.textContent));
+  const cwText = cutword.firstChild;
+  cwText.replaceWith(charsOf(cwText.textContent));
+  const slash = $(".slash", cutword);
+  const tail = $$(".c", cutword).slice(-3);
+  gsap.timeline({ defaults: { ease: "expo.out" }, delay: .15 })
+    .from($$(".c", h1), { yPercent: 110, rotateX: -95, opacity: 0, filter: "blur(10px)", duration: 1.1, stagger: .022 })
+    .to(slash, { scaleX: 1, duration: .45, ease: "power4.inOut" }, "-=.35")
+    .to(tail, { x: (i) => 6 + i * 3, y: (i) => -3 - i * 2, rotate: (i) => 6 + i * 4, duration: .3, ease: "power2.out" }, "<+.2")
+    .to(tail, { x: 0, y: 0, rotate: 0, duration: .9, ease: "elastic.out(1, .4)" })
+    .to(slash, { scaleX: 0, transformOrigin: "right center", duration: .5, ease: "power3.in" }, "<")
+    .from($(".dash", h1), { scaleX: 0, opacity: 0, transformOrigin: "left center", duration: .6, ease: "back.out(3)" }, "<+.1")
+    .from($$(".hero-fade"), { y: 30, opacity: 0, filter: "blur(8px)", duration: 1, stagger: .1 }, .55)
+    .from("#demo", { y: 80, rotateX: 18, rotateY: -14, opacity: 0, duration: 1.6 }, .35)
+    .from(".navwrap .nav", { y: -40, opacity: 0, duration: 1 }, .2);
+
+  // hero parallax as you leave it
+  gsap.to(".hero-text", { yPercent: -18, opacity: .2, ease: "none", scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: true } });
+  gsap.to("#demo", { yPercent: -8, ease: "none", scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: true } });
+  gsap.to(".scrollcue", { opacity: 0, ease: "none", scrollTrigger: { trigger: ".hero", start: "top top", end: "15% top", scrub: true } });
+
+  // =========================== pointer: tilt, glare, cursor light, magnetic buttons =================
+  if (fine) {
+    $$(".tilt").forEach((el) => {
+      const max = el.id === "demo" ? 10 : 7;
+      gsap.set(el, { transformPerspective: 1000 });
+      const rx = gsap.quickTo(el, "rotationX", { duration: .6, ease: "power3" });
+      const ry = gsap.quickTo(el, "rotationY", { duration: .6, ease: "power3" });
+      el.addEventListener("pointermove", (e) => {
+        const b = el.getBoundingClientRect(), px = (e.clientX - b.left) / b.width, py = (e.clientY - b.top) / b.height;
+        rx((0.5 - py) * max); ry((px - 0.5) * max);
+        el.style.setProperty("--gx", px * 100 + "%"); el.style.setProperty("--gy", py * 100 + "%");
+      });
+      el.addEventListener("pointerleave", () => { rx(0); ry(0); });
+    });
+    const glasses = $$(".glass");
+    addEventListener("pointermove", (e) => {
+      for (const el of glasses) {
+        const b = el.getBoundingClientRect();
+        if (e.clientY < b.top - 300 || e.clientY > b.bottom + 300) continue;
+        el.style.setProperty("--mx", e.clientX - b.left + "px"); el.style.setProperty("--my", e.clientY - b.top + "px");
+      }
+    }, { passive: true });
+    $$(".magnetic").forEach((el) => {
+      const x = gsap.quickTo(el, "x", { duration: .5, ease: "power3" }), y = gsap.quickTo(el, "y", { duration: .5, ease: "power3" });
+      el.addEventListener("pointermove", (e) => {
+        const b = el.getBoundingClientRect();
+        x((e.clientX - b.left - b.width / 2) * .3); y((e.clientY - b.top - b.height / 2) * .4);
+      });
+      el.addEventListener("pointerleave", () => { x(0); y(0); });
+    });
+  }
+
+  // =========================== section titles: masked word rise ======================================
+  $$("h2.split").forEach((h) => {
+    const text = h.textContent.trim();
+    h.setAttribute("aria-label", text);
+    h.innerHTML = text.split(/\s+/).map((w) => `<span class="wm" aria-hidden="true"><span class="wi">${w}</span></span>`).join(" ");
+    gsap.from($$(".wi", h), { yPercent: 115, rotate: 4, duration: 1.1, ease: "expo.out", stagger: .045, scrollTrigger: { trigger: h, start: "top 85%" } });
+  });
+  $$(".fade-up").forEach((el) => gsap.from(el, { y: 36, opacity: 0, filter: "blur(6px)", duration: 1.1, ease: "expo.out",
+    scrollTrigger: { trigger: el, start: "top 88%" } }));
+
+  const mm = gsap.matchMedia();
+
+  // =========================== pipeline: pinned, a pulse travels the wire ============================
+  mm.add("(min-width: 901px)", () => {
+    const nodes = $$("#pipe .node"), dots = nodes.map((n) => $(".dot", n)), ms = nodes.map((n) => $(".ms", n));
+    let summary = null;
+    latency.then((s) => (summary = s));
+    gsap.set(dots, { scale: .5, opacity: .35 });
+    gsap.set(nodes, { opacity: .45, y: 16 });
+    gsap.set("#wireFill", { scaleX: 0 });
+    const tl = gsap.timeline({ scrollTrigger: { trigger: "#pipeStage", start: "top top", end: "+=1600", pin: true, scrub: .8, anticipatePin: 1 } });
+    tl.set("#packet", { opacity: 1 })
+      .to("#wireFill", { scaleX: 1, duration: 4, ease: "none" }, "run")
+      .to("#packet", { left: "100%", duration: 4, ease: "none" }, "run");
+    nodes.forEach((n, i) => {
+      const at = `run+=${Math.max(0, (i / (nodes.length - 1)) * 4 - .1)}`;
+      tl.to(n, { opacity: 1, y: 0, duration: .4, ease: "power2.out" }, at)
+        .to(dots[i], { scale: 1, opacity: 1, duration: .5, ease: "back.out(3)" }, at)
+        .fromTo(dots[i], { boxShadow: "0 0 0 0 rgba(14,165,198,.7)" }, { boxShadow: "0 0 0 16px rgba(14,165,198,0)", duration: .6 }, at);
+      const c = { v: 0 };
+      tl.to(c, { v: 1, duration: .7, ease: "power1.out", onUpdate: () => {
+        if (summary) ms[i].textContent = msLabel(ms[i].dataset.k, (summary[ms[i].dataset.k]?.p50 ?? 0) * c.v);
+        else ms[i].textContent = "";
+      } }, at);
+    });
+    tl.to("#packet", { opacity: 0, scale: 3, duration: .4 }, "run+=4").to({}, { duration: .6 });
+  });
+  mm.add("(max-width: 900px)", () => {
+    latency.then((s) => s && $$(".ms").forEach((el) => (el.textContent = msLabel(el.dataset.k, s[el.dataset.k]?.p50 ?? 0))));
+    gsap.from("#pipe .node", { y: 30, opacity: 0, stagger: .1, duration: .8, ease: "expo.out", scrollTrigger: { trigger: "#pipe", start: "top 80%" } });
+  });
+
+  // feature cards: wipe up through a mask, staggered
+  gsap.from("#feats .feat", { clipPath: "inset(100% 0% 0% 0% round 26px)", y: 80, rotateX: -20, duration: 1.3, ease: "expo.out", stagger: .12,
+    clearProps: "clipPath", scrollTrigger: { trigger: "#feats", start: "top 82%" } });
+
+  // =========================== lines: a stacked deck, dealt out as you scroll ========================
+  mm.add("(min-width: 961px)", () => {
+    const cards = $$("#deck .line");
+    const tl = gsap.timeline({ scrollTrigger: { trigger: "#linesStage", start: "top top", end: "+=1100", pin: true, scrub: .9, anticipatePin: 1 } });
+    cards.forEach((c, i) => {
+      const w = c.offsetWidth + 18;
+      tl.from(c, { x: (1 - i) * w, y: 40 - i * 14, rotate: (i - 1) * 7, rotationY: (i - 1) * -18, scale: .88 + i * .03,
+                   duration: 1, ease: "power3.inOut" }, i * .08);
+    });
+    tl.from($$("#deck .line > *:not(.who)"), { opacity: 0, y: 14, stagger: .03, duration: .4 }, .6).to({}, { duration: .3 });
+  });
+  mm.add("(max-width: 960px)", () => {
+    gsap.from("#deck .line", { y: 60, opacity: 0, stagger: .12, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "#deck", start: "top 80%" } });
+  });
+
+  // =========================== browser story: scroll drives the page the agent works on ==============
+  (function story() {
+    const steps = $$("#steps .step");
+    const vals = $$(".bpage .v"), marks = $$(".bpage .mark"), oks = $$(".bpage .ok");
+    const rects = marks.map((m) => $("rect", m)), tags = marks.map((m) => $(".tag", m));
+    vals.forEach((v) => (v.textContent = ""));
+    gsap.set(".plan-mini", { opacity: 0, y: -10, scale: .96 });
+    gsap.set(rects, { strokeDasharray: 100, strokeDashoffset: 100 });
+    gsap.set(tags, { scale: 0 });
+    gsap.set(oks, { scale: 0, opacity: 0 });
+    gsap.set(".gate", { y: 40, opacity: 0, scale: .96 });
+    gsap.set(steps, { opacity: .35, scale: .97 });
+    let current = -1;
+    const tl = gsap.timeline({ scrollTrigger: { trigger: "#steps", start: "top 60%", end: "bottom 75%", scrub: .7,
+      onUpdate: (self) => {
+        const k = Math.min(steps.length - 1, Math.floor(self.progress * steps.length));
+        if (k === current) return;
+        current = k;
+        steps.forEach((s, i) => gsap.to(s, { opacity: i === k ? 1 : .35, scale: i === k ? 1 : .97, duration: .5, ease: "power2.out", overwrite: "auto" }));
+      } } });
+    // 1. plan
+    tl.to(".plan-mini", { opacity: 1, y: 0, scale: 1, duration: .6, ease: "back.out(2)" }).to({}, { duration: .4 });
+    // 2. look: a scan beam sweeps, the numbered boxes draw in
+    tl.fromTo("#scan", { y: -90, opacity: 1 }, { y: 420, duration: 1.2, ease: "none" })
+      .to("#scan", { opacity: 0, duration: .2 })
+      .to(rects.slice(0, 5), { strokeDashoffset: 0, duration: .5, stagger: .08 }, "-=1")
+      .to(tags.slice(0, 5), { scale: 1, duration: .3, stagger: .08, ease: "back.out(3)" }, "<")
+      .to(".plan-mini", { opacity: 0, y: -12, scale: .96, duration: .35 }, "<")
+      .to({}, { duration: .3 });
+    // 3. fill and verify, field after field
+    vals.forEach((v, i) => {
+      const p = { p: 0 }, t = v.dataset.text;
+      tl.to(p, { p: 1, duration: .45, ease: "none", onUpdate: () => (v.textContent = t.slice(0, Math.round(t.length * p.p))) }, i ? ">-.1" : ">")
+        .to(oks[i], { scale: 1, opacity: 1, duration: .3, ease: "back.out(3)" })
+        .to([rects[i], tags[i]], { opacity: .25, duration: .2 }, "<");
+    });
+    // 4. the risky click waits for a yes
+    tl.to(rects[5], { strokeDashoffset: 0, duration: .4 }, "+=.2")
+      .to(tags[5], { scale: 1, duration: .25, ease: "back.out(3)" }, "<")
+      .to(".gate", { y: 0, opacity: 1, scale: 1, duration: .6, ease: "back.out(1.6)" })
+      .to({}, { duration: .6 });
+    addEventListener("resize", fitRects);
+  })();
+
+  // code: lines type in
+  gsap.from("#code", { y: 60, rotationY: -12, rotationX: 6, transformPerspective: 1200, opacity: 0, duration: 1.4, ease: "expo.out",
+    scrollTrigger: { trigger: "#code", start: "top 85%" } });
+  gsap.from("#code .ln", { opacity: 0, x: -16, filter: "blur(4px)", duration: .6, stagger: .07, ease: "power3.out", delay: .2,
+    scrollTrigger: { trigger: "#code", start: "top 85%" } });
+
+  // final: the orb swells as you arrive
+  gsap.fromTo("#bigorb", { scale: .4, opacity: .2 }, { scale: 1.25, opacity: .65, ease: "none",
+    scrollTrigger: { trigger: "#final", start: "top bottom", end: "bottom 60%", scrub: true } });
+  gsap.from("#final", { y: 80, scale: .94, opacity: 0, duration: 1.4, ease: "expo.out", scrollTrigger: { trigger: "#final", start: "top 85%" } });
+
+  // The nav's section triggers come last, so their positions include the pinned sections' extra scroll.
+  const pill = $("#navPill");
+  $$("#navLinks a").forEach((a) => {
+    ScrollTrigger.create({ trigger: $(a.getAttribute("href")), start: "top 50%", end: "bottom 50%", onToggle: (self) => {
+      if (!self.isActive) return;
+      $$("#navLinks a").forEach((x) => x.classList.toggle("on", x === a));
+      pill.style.left = a.offsetLeft + "px"; pill.style.width = a.offsetWidth + "px"; pill.style.opacity = 1;
+    } });
+  });
+  ScrollTrigger.create({ trigger: ".hero", start: "top top", end: "bottom 50%", onEnterBack: () => {
+    pill.style.opacity = 0; $$("#navLinks a").forEach((x) => x.classList.remove("on"));
+  } });
+
+  // web fonts change sizes after they load: re-measure pins and boxes
+  document.fonts?.ready.then(() => { fitRects(); ScrollTrigger.refresh(); });
+})();
+</script>
+</body>
+</html>

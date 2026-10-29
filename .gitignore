@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+data/*.db
+data/*.jsonl
+data/bench_audio/
+.playwright-mcp/
+data/browser/
+data/resume/
+data/*.log
+data/clips/
+data/latency_report.html
+data/run_bench.sh

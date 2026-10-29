@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apply: Backend Engineer at Harbor Labs</title>
+<style>
+  body { margin: 0; font: 15px/1.5 system-ui, "Segoe UI", sans-serif; color: #1d2433; background: #f3f5f9; }
+  header { background: #13315c; color: #fff; padding: 18px 32px; }
+  header b { font-size: 18px; } header span { opacity: .75; margin-left: 10px; }
+  main { max-width: 640px; margin: 28px auto 60px; background: #fff; border-radius: 10px; padding: 28px 32px;
+         box-shadow: 0 1px 3px rgba(19,49,92,.12); }
+  h1 { font-size: 22px; margin: 0 0 4px; } p.lead { margin: 0 0 22px; color: #5b6475; }
+  fieldset { border: 0; padding: 0; margin: 0 0 22px; } legend { font-weight: 600; margin-bottom: 10px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  label { display: block; font-size: 13px; color: #3b4456; margin-bottom: 12px; }
+  input, select, textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; font: inherit;
+         padding: 8px 10px; border: 1px solid #c8cfdb; border-radius: 6px; background: #fff; }
+  textarea { min-height: 90px; resize: vertical; }
+  .check { display: flex; gap: 8px; align-items: center; } .check input { width: auto; margin: 0; }
+  button { background: #1f5eff; color: #fff; border: 0; border-radius: 6px; padding: 11px 22px; font: 600 15px system-ui; cursor: pointer; }
+  .done { text-align: center; padding: 40px 0; } .done h1 { color: #127a4b; }
+</style>
+</head>
+<body>
+<header><b>Harbor Labs</b><span>Careers</span></header>
+<main id="main">
+  <h1>Backend Engineer (Python)</h1>
+  <p class="lead">Bengaluru · Hybrid · Full time</p>
+  <form id="form">
+    <fieldset>
+      <legend>About you</legend>
+      <div class="row">
+        <label>First name<input name="first_name" required></label>
+        <label>Last name<input name="last_name" required></label>
+      </div>
+      <div class="row">
+        <label>Email<input name="email" type="email" required></label>
+        <label>Phone<input name="phone" type="tel" required></label>
+      </div>
+      <label>City<input name="city"></label>
+      <label>LinkedIn profile<input name="linkedin" type="url" placeholder="https://"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Experience</legend>
+      <div class="row">
+        <label>Current company<input name="company"></label>
+        <label>Current title<input name="title"></label>
+      </div>
+      <div class="row">
+        <label>Years of experience
+          <select name="years"><option value="">Select…</option><option>0-1</option><option>2-3</option>
+            <option>4-6</option><option>7-10</option><option>10+</option></select></label>
+        <label>Notice period
+          <select name="notice"><option value="">Select…</option><option>Immediate</option><option>15 days</option>
+            <option>30 days</option><option>60 days</option><option>90 days</option></select></label>
+      </div>
+      <label>Highest degree<input name="degree"></label>
+      <label>Key skills<input name="skills" placeholder="Comma separated"></label>
+      <label>Why Harbor Labs? (optional)<textarea name="why"></textarea></label>
+      <label>Resume<input name="resume" type="file" accept=".pdf,.md,.txt,.doc,.docx"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Work preferences</legend>
+      <label class="check"><input type="checkbox" name="hybrid"> I can work from the Bengaluru office 3 days a week</label>
+      <label class="check"><input type="checkbox" name="consent" required> I agree to Harbor Labs storing my application</label>
+    </fieldset>
+    <button type="submit">Submit application</button>
+  </form>
+</main>
+<script>
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = new FormData(e.target).get("first_name");
+    document.getElementById("main").innerHTML =
+      `<div class="done"><h1>Application received</h1><p>Thanks, ${name.replace(/[<>&]/g, "")}. This is a demo form, so nothing was sent anywhere.</p></div>`;
+  });
+</script>
+</body>
+</html>
