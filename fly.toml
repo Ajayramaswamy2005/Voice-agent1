@@ -27,7 +27,7 @@ primary_region = "bom"  # Mumbai: close to Indian callers and to api.in.deepgram
     path = "/api/config"
     interval = "30s"
     timeout = "5s"
-    grace_period = "40s"  # startup connects to Cartesia and loads clips
+    grace_period = "180s"  # the first start renders ~40 voice clips through Cartesia (cached afterwards)
 
 [[vm]]
   size = "shared-cpu-1x"
